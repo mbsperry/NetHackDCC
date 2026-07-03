@@ -152,7 +152,7 @@ Each task is tagged with the development model it needs: **[Sonnet]** = default 
 (Separately, the *runtime* `fast`/`strong` tiers in Part 3 map, when Claude is the provider, to Haiku/Sonnet for `fast` and Opus for `strong`.)
 
 ### Phase 0 — Engine bridge spike (de-risk everything first)
-- [ ] **[Sonnet]** Build `libnethack.a` on Linux (`setup.sh` + `make WANT_LIBNH=1 fetch-lua all`); fix hint issues (patch #1) — build-system grinding; escalate to Opus if hints bit-rot runs deep
+- [x] **[Sonnet]** Build `libnethack.a` on Linux — actual sequence: `git submodule update --init submodules/lua`, `sys/unix/setup.sh hints/linux.500`, `make GIT=1 WANT_LIBNH=1 all` (produces `src/libnh.a`; `GIT=1` is required to enable the submodule-based Lua path, undocumented in `sys/libnh/README.md`); fixed a missing `recover: lua_support` dependency in `linux.500`'s `WANT_LIBNH` block (patch #1, ported from `macOS.500`) — see `docs/engine-patches.md`. Verified: clean rebuild exits 0, `nm src/libnh.a` shows `nhmain`, `shim_graphics_set_callback`, all four `cmdq_add_*` symbols exported.
 - [ ] **[Opus]** `server/driver/main.c` v0: register shim callback, boot `nhmain()` in a per-session dir, dump every shim event as NDJSON — first-of-kind integration; the fmt-driven varargs decode of shim callbacks is subtle and everything downstream sits on it
 - [ ] **[Sonnet]** Canned answers through character creation → first map
 - [ ] **[Sonnet]** Decode a `print_glyph` batch to `{x,y,ch,color,monIdx}` via glyph bands — mechanical once offsets are known

@@ -520,6 +520,12 @@ LIBNHSYSOBJ = $(TARGETPFX)libnhmain.o $(TARGETPFX)ioctl.o \
 #without winshim
 override GAME=
 MOREALL += ( cd src ; $(MAKE) pregame ; $(MAKE) $(TARGETPFX)libnh.a )
+# With $(GAME) empty, the regular `recover: $(GAME)` chain no longer
+# triggers lua_support, but recover.c still pulls in hack.h -> nhlua.h
+# transitively.  Make recover depend on lua_support explicitly.
+ifdef MAKEFILE_TOP
+recover: lua_support
+endif
 endif  # WANT_LIBNH
 
 SYSCONFCREATE = cp sys/unix/sysconf $(INSTDIR)/sysconf
