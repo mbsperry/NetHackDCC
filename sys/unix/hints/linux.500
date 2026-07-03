@@ -520,6 +520,12 @@ LIBNHSYSOBJ = $(TARGETPFX)libnhmain.o $(TARGETPFX)ioctl.o \
 #without winshim
 override GAME=
 MOREALL += ( cd src ; $(MAKE) pregame ; $(MAKE) $(TARGETPFX)libnh.a )
+# With $(GAME) empty, the regular `recover: $(GAME)` chain no longer
+# triggers lua_support, but recover.c still pulls in hack.h -> nhlua.h
+# transitively.  Make recover depend on lua_support explicitly.
+ifdef MAKEFILE_TOP
+recover: lua_support
+endif
 endif  # WANT_LIBNH
 
 SYSCONFCREATE = cp sys/unix/sysconf $(INSTDIR)/sysconf
@@ -621,8 +627,11 @@ endif
 endif
 
 ifdef WANT_LIBNH
-$(TARGETPFX)libnh.a: $(HOBJ) $(LIBNHSYSOBJ) ../lib/lua/liblua-$(LUA_VERSION).a
-	$(AR) rcs $@ $(HOBJ) $(LIBNHSYSOBJ) ../lib/lua/liblua-$(LUA_VERSION).a
+# hacklib.o holds core utility fns (dist2, eos, sgn, strncmpi, ...) that are
+# not part of $(HOBJ); macOS.500 merges it via $(TARGET_HACKLIB), so include
+# it here too or the archive is missing those symbols.
+$(TARGETPFX)libnh.a: $(HOBJ) $(LIBNHSYSOBJ) $(TARGETPFX)hacklib.o ../lib/lua/liblua-$(LUA_VERSION).a
+	$(AR) rcs $@ $(HOBJ) $(LIBNHSYSOBJ) $(TARGETPFX)hacklib.o ../lib/lua/liblua-$(LUA_VERSION).a
 	@echo "$@ built."
 $(TARGETPFX)libnhmain.o : ../sys/libnh/libnhmain.c $(HACK_H)
 	$(CC) $(CFLAGS) -c -o$@ $<

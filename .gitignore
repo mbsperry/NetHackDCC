@@ -98,3 +98,7 @@ util/*.lib
 util/*.exp
 submodules/CHKSUMS.tmp
 sys/amiga/regex/
+
+#NetHackDCC engine driver hosts (see mbsperry/Vibe-crawler) create the
+#runtime playground at the compiled-in HACKDIR inside this checkout
+playground/
