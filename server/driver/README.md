@@ -40,6 +40,16 @@ Input (v0): raw keystrokes are read from `$DCC_KEYS` first, then stdin. On EOF
 the run ends cleanly (emits `{"cb":"__eof"}` and exits 0), so piping input or
 `< /dev/null` gives a bounded boot dump.
 
+`$DCC_INJECT_INVENTORY` (v0, Phase-0 task 5): if set, the driver queues the
+engine's `inventory` extended command (`ddoinv`, resolved from
+`extcmdlist[]`) onto `cmdq_add_ec(CQ_CANNED, ...)` the first time it's about
+to read a real keystroke. The engine drains that queue at the very start of
+the *next* player turn (`rhack()`, `src/cmd.c`), ahead of any keypress, so
+the inventory menu appears without ever sending an `i` -- the same
+canned-command mechanism the engine itself uses (see `act_on_act()` at
+`src/cmd.c:4688`). The driver emits a synthetic `{"cb":"__inject_inventory"}`
+marker at the moment it queues the command.
+
 ### Example
 
 ```sh
@@ -79,4 +89,6 @@ sh server/driver/smoke.sh
 ```
 
 Builds (if needed) and asserts a clean boot: exit 0, and at least one
-`shim_print_glyph` (map drawn) plus a trailing input prompt.
+`shim_print_glyph` (map drawn) plus a trailing input prompt. A second run
+with `DCC_INJECT_INVENTORY=1` asserts the injected `inventory` extcmd fires
+exactly once and produces inventory menu items.

@@ -34,6 +34,18 @@ typedef void (*shim_callback_t)(const char *name, void *ret_ptr,
                                 const char *fmt, ...);
 void shim_graphics_set_callback(shim_callback_t cb);
 
+/* Phase-0 task 5: command-queue injection. cmdq_add_ec() appends an
+ * extended-command function pointer to CQ_CANNED (queue index 0, per
+ * include/hack.h's cmdq_cmdtypes); rhack() drains that queue at the top of
+ * every player turn, ahead of any real keystroke read (src/cmd.c:3643) --
+ * this is the same mechanism the engine's own canned command sequences use
+ * (e.g. act_on_act() at src/cmd.c:4688). ddoinv is extcmdlist[]'s "inventory"
+ * entry's ef_funct (src/cmd.c, key 'i'); calling it via the queue instead of
+ * a real 'i' keypress proves the injection path end to end. */
+void cmdq_add_ec(int q, int (*fn)(void));
+int ddoinv(void);
+#define CQ_CANNED 0
+
 /* NetHack type facts we depend on (verified against include/global.h and
  * include/wintype.h at build commit):
  *   winid   = int          WIN_ERR = (winid)-1  -> valid ids are >= 0
@@ -123,6 +135,12 @@ winid_next(void)
     return g_next_winid++;
 }
 
+/* Phase-0 task 5: when set, queue a canned "inventory" extcmd the first time
+ * the engine asks for a real keystroke, so it fires on the *next* player
+ * turn (the current ask is still answered normally from DCC_KEYS/stdin). */
+static int g_inject_inventory = 0;
+static int g_injected_inventory = 0;
+
 /* Emit one NDJSON line for a decoded callback:
  *   {"cb":NAME,"fmt":FMT,"args":[...] [,"ret":N]} */
 static void
@@ -191,6 +209,14 @@ dcc_cb(const char *name, void *ret_ptr, const char *fmt, ...)
      * Then supply the key/out-params.  Non-input returns are computed below
      * and echoed inline as "ret". */
     if (!strcmp(name, "shim_nhgetch") || !strcmp(name, "shim_nh_poskey")) {
+        if (g_inject_inventory && !g_injected_inventory) {
+            /* Queue onto CQ_CANNED now, answer this ask normally; rhack()
+             * will drain the queue at the start of the *next* turn instead
+             * of prompting for a real key. */
+            cmdq_add_ec(CQ_CANNED, ddoinv);
+            g_injected_inventory = 1;
+            emit_simple("__inject_inventory");
+        }
         emit_event(name, fmt, args, nargs, 0, 0);
         if (!strcmp(name, "shim_nh_poskey") && nargs >= 3) {
             /* x(p) y(p) mod(p) -- report a keystroke, no map click */
@@ -351,6 +377,7 @@ main(int argc, char *argv[])
 
     setvbuf(stdout, NULL, _IOLBF, 0);
     g_keys = getenv("DCC_KEYS");
+    g_inject_inventory = getenv("DCC_INJECT_INVENTORY") != NULL;
 
     /* Build the per-session playground. */
     if (mkdir_p(session_dir) != 0) {
