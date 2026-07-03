@@ -38,14 +38,23 @@ The WASM build stays untouched as an upstream feature (possible future offline/d
 
 ### Repository layout
 
+> **Superseded 2026-07-03** — see `docs/REPO_STRUCTURE.md`. The project now
+> spans two repos: **`mbsperry/Vibe-crawler`** (product monorepo: `engine/driver/`,
+> `server/`, `web/`, `packages/protocol/`, `content/personas/`, `docs/`, with
+> the engine pinned as a git submodule at `engine/nethack/`) and
+> **`mbsperry/NetHackDCC`** (pure engine fork: upstream + minimal patches on a
+> `dcc-engine` branch, logged in `docs/engine-patches.md`).
+
 ```
-├── src/, include/, win/, dat/, sys/   # engine (minimal, documented patches)
-├── server/driver/       # C: main.c (boot+dispatch), proto.c (NDJSON), snapshot.c, inject.c, Makefile
-├── server/node/src/     # TS: session/ (SessionManager, DriverProcess), ws/, ai/, content/, achievements/
+Vibe-crawler/
+├── engine/nethack/      # git submodule -> mbsperry/NetHackDCC @ dcc-engine (pinned)
+├── engine/driver/       # C: main.c (boot+dispatch), proto.c (NDJSON), snapshot.c, inject.c, Makefile
+├── server/              # TS: session/ (SessionManager, DriverProcess), ws/, ai/, content/, achievements/
 ├── web/src/             # Vite+React+TS client
 ├── packages/protocol/   # shared zod schemas for both protocols
 ├── content/personas/    # persona prompt packs (original IP), achievement templates
-└── docs/                # PROJECT_PLAN.md, ENGINE_AUDIT.md, engine-patches.md
+├── scripts/             # build-engine.sh
+└── docs/                # PROJECT_PLAN.md, ENGINE_AUDIT.md, REPO_STRUCTURE.md
 ```
 
 ### Session lifecycle
@@ -150,6 +159,15 @@ Pipeline: `freetext` → context assembly → LLM intent parse → plan validati
 Each task is tagged with the development model it needs: **[Sonnet]** = default model is sufficient (well-specified work following a known pattern); **[Opus]** = use Opus's deeper reasoning. Opus is reserved for: (1) first-of-its-kind C/engine integration where mistakes are subtle, (2) protocol/lifecycle correctness design with concurrency edge cases, (3) security-critical AI translation and adversarial work, (4) persona voice quality (it *is* the product), (5) legal/IP judgment calls. Everything else defaults to Sonnet; escalate any task to Opus if Sonnet stalls after two attempts. Rough expected split: ~75% Sonnet.
 
 (Separately, the *runtime* `fast`/`strong` tiers in Part 3 map, when Claude is the provider, to Haiku/Sonnet for `fast` and Opus for `strong`.)
+
+### Phase 0.5 — Repo split (inserted 2026-07-03; do before Phase 0 tasks 3–6)
+
+Split into product monorepo + thin engine fork per `docs/REPO_STRUCTURE.md`
+(full checklist there):
+
+- [ ] **[Sonnet]** (user) Create `mbsperry/Vibe-crawler`; (Claude) scaffold layout, submodule pin, move driver + docs + CLAUDE.md, `scripts/build-engine.sh`
+- [ ] **[Sonnet]** Fork cleanup: `dcc-engine` branch with clean patch commits as new default; remove migrated files; slim CLAUDE.md
+- [ ] **[Sonnet]** Verify from fresh clone: `build-engine.sh && make -C engine/driver && sh engine/driver/smoke.sh` passes
 
 ### Phase 0 — Engine bridge spike (de-risk everything first)
 - [x] **[Sonnet]** Build `libnethack.a` on Linux — actual sequence: `git submodule update --init submodules/lua`, `sys/unix/setup.sh hints/linux.500`, `make GIT=1 WANT_LIBNH=1 all` (produces `src/libnh.a`; `GIT=1` is required to enable the submodule-based Lua path, undocumented in `sys/libnh/README.md`); fixed a missing `recover: lua_support` dependency in `linux.500`'s `WANT_LIBNH` block (patch #1, ported from `macOS.500`) — see `docs/engine-patches.md`. Verified: clean rebuild exits 0, `nm src/libnh.a` shows `nhmain`, `shim_graphics_set_callback`, all four `cmdq_add_*` symbols exported.
