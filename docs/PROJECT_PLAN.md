@@ -136,66 +136,70 @@ Pipeline: `freetext` → context assembly → LLM intent parse → plan validati
 
 ## Part 6 — Milestones
 
+Each task is tagged with the development model it needs: **[Sonnet]** = default model is sufficient (well-specified work following a known pattern); **[Opus]** = use Opus's deeper reasoning. Opus is reserved for: (1) first-of-its-kind C/engine integration where mistakes are subtle, (2) protocol/lifecycle correctness design with concurrency edge cases, (3) security-critical AI translation and adversarial work, (4) persona voice quality (it *is* the product), (5) legal/IP judgment calls. Everything else defaults to Sonnet; escalate any task to Opus if Sonnet stalls after two attempts. Rough expected split: ~75% Sonnet.
+
+(Separately, the *runtime* `fast`/`strong` tiers in Part 3 map, when Claude is the provider, to Haiku/Sonnet for `fast` and Opus for `strong`.)
+
 ### Phase 0 — Engine bridge spike (de-risk everything first)
-- [ ] Build `libnethack.a` on Linux (`setup.sh` + `make WANT_LIBNH=1 fetch-lua all`); fix hint issues (patch #1)
-- [ ] `server/driver/main.c` v0: register shim callback, boot `nhmain()` in a per-session dir, dump every shim event as NDJSON
-- [ ] Canned answers through character creation → first map
-- [ ] Decode a `print_glyph` batch to `{x,y,ch,color,monIdx}` via glyph bands
-- [ ] Inject the inventory command via `cmdq_add_ec` resolved from `extcmdlist`; observe the menu event
-- [ ] Emit a JSON snapshot of `u` + `gi.invent` from inside a callback
+- [ ] **[Sonnet]** Build `libnethack.a` on Linux (`setup.sh` + `make WANT_LIBNH=1 fetch-lua all`); fix hint issues (patch #1) — build-system grinding; escalate to Opus if hints bit-rot runs deep
+- [ ] **[Opus]** `server/driver/main.c` v0: register shim callback, boot `nhmain()` in a per-session dir, dump every shim event as NDJSON — first-of-kind integration; the fmt-driven varargs decode of shim callbacks is subtle and everything downstream sits on it
+- [ ] **[Sonnet]** Canned answers through character creation → first map
+- [ ] **[Sonnet]** Decode a `print_glyph` batch to `{x,y,ch,color,monIdx}` via glyph bands — mechanical once offsets are known
+- [ ] **[Sonnet]** Inject the inventory command via `cmdq_add_ec` resolved from `extcmdlist`; observe the menu event — engine's own canned-program pattern (`src/cmd.c:4688-4714`) is the template
+- [ ] **[Sonnet]** Emit a JSON snapshot of `u` + `gi.invent` from inside a callback
 
 **Definition of done**: a headless script walks the `@` one step east and prints correct hp/pos over JSON pipes.
 
 ### Phase 1 — Driver + session server + protocol
-- [ ] Full driver: all procs → events/asks, answer correlation, snapshots (symbolic ids), `inject` + `expect` + abort, `interrupt`, `set_option`, turn callout (patch #3), livelog tail
-- [ ] `packages/protocol/` zod schemas (both protocols)
-- [ ] Node server: DriverProcess (spawn/stdio/restart), SessionManager (create/attach/park-SIGHUP/resume/crash-respawn), SQLite store, WS gateway + auth
-- [ ] CLI devtool: play over the protocol from a terminal (integration rig)
-- [ ] Automated bot test: 200 turns including a menu, a yn, a getlin, save, resume
+- [ ] **[Opus]** Full driver: all procs → events/asks, answer correlation, snapshots (symbolic ids), `inject` + `expect` + abort, `interrupt`, `set_option`, turn callout (patch #3), livelog tail — the heart of the system; ask/answer correlation and guard-abort semantics must be exactly right
+- [ ] **[Sonnet]** `packages/protocol/` zod schemas (both protocols)
+- [ ] **[Opus]** Node server: DriverProcess (spawn/stdio/restart), SessionManager (create/attach/park-SIGHUP/resume/crash-respawn), SQLite store, WS gateway + auth — lifecycle edge cases (crash-during-park, reconnect races) need careful design
+- [ ] **[Sonnet]** CLI devtool: play over the protocol from a terminal (integration rig)
+- [ ] **[Sonnet]** Automated bot test: 200 turns including a menu, a yn, a getlin, save, resume
 
 **Definition of done**: two concurrent sessions play independently; `kill -9` a driver mid-game → the session resumes from panic save.
 
 ### Phase 2 — Classic web NetHack (zero AI)
-- [ ] Web scaffold, WS client + store, session create/join
-- [ ] MapCanvas ASCII mode (colors, cursor, click-to-travel)
-- [ ] StatusBar, MessageLog, InventoryPanel (perm_invent)
-- [ ] MenuOverlay + PromptBar for all ask kinds; full keyboard passthrough
-- [ ] Tile mode (atlas from `win/share`), ASCII/tiles toggle
-- [ ] Mobile tabs + on-screen direction pad
-- [ ] Save on disconnect, resume on reconnect
+- [ ] **[Sonnet]** Web scaffold, WS client + store, session create/join
+- [ ] **[Sonnet]** MapCanvas ASCII mode (colors, cursor, click-to-travel)
+- [ ] **[Sonnet]** StatusBar, MessageLog, InventoryPanel (perm_invent)
+- [ ] **[Sonnet]** MenuOverlay + PromptBar for all ask kinds; full keyboard passthrough — fiddly but fully specified by the ask state machine in Part 2
+- [ ] **[Sonnet]** Tile mode (atlas from `win/share`), ASCII/tiles toggle
+- [ ] **[Sonnet]** Mobile tabs + on-screen direction pad
+- [ ] **[Sonnet]** Save on disconnect, resume on reconnect
 
 **Definition of done**: a NetHack player comfortably plays to Mines' End in a browser, desktop and phone.
 
 ### Phase 3 — AI foundation + narration
-- [ ] Provider abstraction + 4 adapters, tier config, metrics
-- [ ] EventBuffer + significance rules + density settings (unit-tested on recorded Phase-2 event streams)
-- [ ] Narration worker (coalescing, streaming) + NarrativePane + toggle (off = zero LLM calls)
-- [ ] Persona pack v1 (original snarky dungeon-AI) + picker; run-summary memory
-- [ ] Final desktop side-by-side + mobile Story tab
+- [ ] **[Sonnet]** Provider abstraction + 4 adapters, tier config, metrics — standard adapter pattern
+- [ ] **[Sonnet]** EventBuffer + significance rules + density settings (unit-tested on recorded Phase-2 event streams)
+- [ ] **[Sonnet]** Narration worker (coalescing, streaming) + NarrativePane + toggle (off = zero LLM calls)
+- [ ] **[Opus]** Persona pack v1 (original snarky dungeon-AI) + picker; run-summary memory — the voice is the product; needs strong creative writing plus original-IP discipline
+- [ ] **[Sonnet]** Final desktop side-by-side + mobile Story tab
 
 **Definition of done**: a 30-minute session narrated in-voice; narration never delays a keypress (measured); cost logged per session.
 
 ### Phase 4 — Descriptions + achievements
-- [ ] `data.base` parser/index + build-time stats dump (`monsters.json`/`objects.json`)
-- [ ] Describe service + SQLite cache + pre-generation; describe UI on map hover + inventory
-- [ ] Achievement engine (livelog/xlogfile + rule triggers), cached titles, toasts + panel
-- [ ] End-of-game recap (dumplog + xlogfile, strong tier)
+- [ ] **[Sonnet]** `data.base` parser/index + build-time stats dump (`monsters.json`/`objects.json`)
+- [ ] **[Sonnet]** Describe service + SQLite cache + pre-generation; describe UI on map hover + inventory
+- [ ] **[Sonnet]** Achievement engine (livelog/xlogfile + rule triggers), cached titles, toasts + panel
+- [ ] **[Sonnet]** End-of-game recap (dumplog + xlogfile, strong tier) — prompt drafting can borrow the Opus-written persona pack
 
 **Definition of done**: describing a kitten twice hits cache; dying yields an in-voice obituary + at least one earned mock-achievement.
 
 ### Phase 5 — Free-text actions
-- [ ] Tool schema generator + context assembler
-- [ ] Intent parse (fast tier, JSON-constrained) + plan validator + compiler to `inject` programs
-- [ ] Danger classifier, clarify flow, `cannot` fallback, count caps
-- [ ] Interruption UX (abort chips, hand-back); `action_status` in both panes
-- [ ] Red-team suite: injection strings, hallucinated items, mid-program menus, shopkeeper scenarios
+- [ ] **[Sonnet]** Tool schema generator + context assembler
+- [ ] **[Opus]** Intent parse (fast tier, JSON-constrained) + plan validator + compiler to `inject` programs — correctness-critical translation layer; wrong compilation = wrong irreversible game actions
+- [ ] **[Opus]** Danger classifier, clarify flow, `cannot` fallback, count caps — security-critical, danger-by-default logic needs adversarial thinking
+- [ ] **[Sonnet]** Interruption UX (abort chips, hand-back); `action_status` in both panes
+- [ ] **[Opus]** Red-team suite: injection strings, hallucinated items, mid-program menus, shopkeeper scenarios — adversarial test design is only as good as the attacker imagination behind it
 
 **Definition of done**: "put on the ring and head down the stairs" works; "attack the shopkeeper" surfaces the real yn prompt to the human — never auto-answered.
 
 ### Phase 6 — Hardening, cost, ops, release
-- [ ] Budget enforcement + user-visible meter; density auto-degrade
-- [ ] Soak: 20 concurrent bot sessions × 24 h; crash drills; memory/fd audits
-- [ ] Deployment (containerized server + driver, static web), TLS/WS, session auth
-- [ ] NGPL compliance pass (licenses, `docs/engine-patches.md`, source publication); persona IP review; docs
+- [ ] **[Sonnet]** Budget enforcement + user-visible meter; density auto-degrade
+- [ ] **[Sonnet]** Soak: 20 concurrent bot sessions × 24 h; crash drills; memory/fd audits
+- [ ] **[Sonnet]** Deployment (containerized server + driver, static web), TLS/WS, session auth
+- [ ] **[Opus]** NGPL compliance pass (licenses, `docs/engine-patches.md`, source publication); persona IP review; docs — legal/IP judgment calls warrant the stronger model (and a human read)
 
 **Definition of done**: public playable instance; a fresh clone builds engine + driver + server + web with documented steps.
