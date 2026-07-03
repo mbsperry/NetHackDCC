@@ -46,6 +46,14 @@ void cmdq_add_ec(int q, int (*fn)(void));
 int ddoinv(void);
 #define CQ_CANNED 0
 
+/* Phase-0 task 4: glyph decoding. Implemented in glyphdecode.c (the one
+ * translation unit in this driver that includes hack.h -- see its file
+ * comment) rather than here, so main.c can stay header-free while still
+ * turning each print_glyph's opaque glyph_info* into {ch, color, monIdx}
+ * via the engine's own glyph-band macros. */
+void dcc_decode_glyph(const void *glyphinfo_ptr, int *ch, int *color,
+                      int *monIdx);
+
 /* NetHack type facts we depend on (verified against include/global.h and
  * include/wintype.h at build commit):
  *   winid   = int          WIN_ERR = (winid)-1  -> valid ids are >= 0
@@ -227,6 +235,18 @@ dcc_cb(const char *name, void *ret_ptr, const char *fmt, ...)
         int key = read_key(); /* may exit(0) on EOF, after the ask above */
         if (ret_ptr) *(int *) ret_ptr = key;
         printf("{\"cb\":\"%s.answer\",\"ret\":%d}\n", name, key);
+        fflush(stdout);
+        return;
+    }
+
+    /* Phase-0 task 4: decode the glyph_info batch instead of emitting raw
+     * pointers -- args: w(i) x(1) y(1) glyphinfo(p) bkglyphinfo(p). */
+    if (!strcmp(name, "shim_print_glyph") && nargs >= 4) {
+        int ch, color, monIdx;
+        dcc_decode_glyph(args[3].p, &ch, &color, &monIdx);
+        printf("{\"cb\":\"shim_print_glyph\",\"w\":%ld,\"x\":%ld,\"y\":%ld,"
+               "\"ch\":%d,\"color\":%d,\"monIdx\":%d}\n",
+               args[0].i, args[1].i, args[2].i, ch, color, monIdx);
         fflush(stdout);
         return;
     }

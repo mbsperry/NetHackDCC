@@ -66,7 +66,7 @@ Each shim callback becomes one line:
 
 ```json
 {"cb":"shim_putstr","fmt":"viis","args":[4,0,"Hello DCCbot"]}
-{"cb":"shim_print_glyph","fmt":"vi11pp","args":[2,41,4,"0x561b3daf3280","0x7fff..."]}
+{"cb":"shim_print_glyph","w":2,"x":41,"y":4,"ch":64,"color":15,"monIdx":343}
 {"cb":"shim_create_nhwindow","fmt":"ii","args":[1],"ret":1}
 ```
 
@@ -75,9 +75,20 @@ Each shim callback becomes one line:
   `b` boolean, `c` char, `v` void). char/short/boolean/coordxy arrive
   int-promoted over varargs.
 - `args` are positional: scalars as numbers, strings as JSON strings (`null`
-  if NULL), pointers as `"0x…"` (dereferencing glyph_info etc. comes in later
-  Phase-0 tasks).
+  if NULL), pointers as `"0x…"` (raw, undereferenced -- for whichever shim
+  callbacks don't get bespoke decoding below).
 - `ret` (when present) is the value the driver returned to the engine.
+- **`shim_print_glyph` is decoded, not passed through `fmt`/`args`** (Phase-0
+  task 4): `w`/`x`/`y` are the window id and cell; `ch` is the resolved
+  display character for the current symset; `color` is the engine's tty
+  color index (`CLR_*`); `monIdx` is the monster index (`glyph_to_mon()` via
+  the glyph-band macros in `include/display.h`) if the glyph is any monster
+  band (normal/pet/ridden/detected, male or female), else `-1`. Only the
+  foreground `glyphinfo` arg is decoded; the background arg (used for frame
+  coloring under riders/piles) is dropped. Decoding lives in
+  `glyphdecode.c`, the one translation unit in this driver that includes
+  `hack.h` -- see its file comment for why it must be compiled with the
+  same defines `libnh.a` was built with.
 - Blocking input calls emit an ask line first (`shim_nhgetch` /
   `shim_nh_poskey`) and, once answered, a `"<name>.answer"` line with the key.
 - `__boot` / `__eof` / `__exit` are driver-synthesized markers.
