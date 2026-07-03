@@ -50,6 +50,11 @@ canned-command mechanism the engine itself uses (see `act_on_act()` at
 `src/cmd.c:4688`). The driver emits a synthetic `{"cb":"__inject_inventory"}`
 marker at the moment it queues the command.
 
+`$DCC_SNAPSHOT` (v0, Phase-0 final task): if set, the driver emits a
+`{"cb":"__snapshot", ...}` line (see below) every time it's about to ask for
+a real keystroke -- i.e. once per completed turn, showing the result of
+whatever the previous key did.
+
 ### Example
 
 ```sh
@@ -86,12 +91,22 @@ Each shim callback becomes one line:
   band (normal/pet/ridden/detected, male or female), else `-1`. Only the
   foreground `glyphinfo` arg is decoded; the background arg (used for frame
   coloring under riders/piles) is dropped. Decoding lives in
-  `glyphdecode.c`, the one translation unit in this driver that includes
+  `glyphdecode.c`, one of the translation units in this driver that includes
   `hack.h` -- see its file comment for why it must be compiled with the
   same defines `libnh.a` was built with.
 - Blocking input calls emit an ask line first (`shim_nhgetch` /
   `shim_nh_poskey`) and, once answered, a `"<name>.answer"` line with the key.
 - `__boot` / `__eof` / `__exit` are driver-synthesized markers.
+- **`__snapshot`** (Phase-0 final task, `DCC_SNAPSHOT=1` only): a JSON
+  dump of `u` (position, hp/hpmax, ac, level, exp) and `gi.invent` (the
+  hero's inventory linked list), e.g.
+  `{"cb":"__snapshot","u":{"x":61,"y":4,"hp":14,"hpmax":14,"ac":4,
+  "level":1,"exp":0},"invent":[{"letter":"a","otyp":159,"quan":1,
+  "oclass":3,"name":"leather gloves"}, ...]}`. `u` and `gi.invent` are
+  plain engine globals, so `dcc_emit_snapshot()` (in `snapshot.c`, also
+  compiled against `hack.h`) is callable from inside any shim callback and
+  always reflects current state, not just something specific to the
+  callback that happens to be running.
 
 ## Smoke test
 
@@ -102,4 +117,8 @@ sh server/driver/smoke.sh
 Builds (if needed) and asserts a clean boot: exit 0, and at least one
 `shim_print_glyph` (map drawn) plus a trailing input prompt. A second run
 with `DCC_INJECT_INVENTORY=1` asserts the injected `inventory` extcmd fires
-exactly once and produces inventory menu items.
+exactly once and produces inventory menu items. A third run with
+`DCC_SNAPSHOT=1` asserts the Phase-0 "definition of done" verbatim: walking
+one step east moves `x` by exactly +1 and leaves `y`/`hp` unchanged
+(retried against a few fresh random rolls, since an unlucky starting room
+can put a wall immediately east of the hero).

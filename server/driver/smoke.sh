@@ -64,3 +64,49 @@ else
     echo "smoke(inject): FAIL (last 10 events)"; tail -10 "$out2"
     exit 1
 fi
+
+# Phase 0 final task: state snapshot. Walking one step east ('l') should
+# move x by exactly +1, leave y and hp/hpmax unchanged -- this is the
+# Phase-0 "Definition of done" scenario verbatim. The starting room is
+# randomly rolled, so 'l' occasionally bumps a wall immediately east
+# (no move, no time passed); retry a few fresh sessions rather than treat
+# that as a snapshot-decoding failure.
+sess3=$(mktemp -d)
+out3=$(mktemp)
+trap 'rm -rf "$sess" "$out" "$sess2" "$out2" "$sess3" "$out3"' EXIT
+
+fail3=1
+attempt=0
+while [ "$attempt" -lt 5 ] && [ "$fail3" -ne 0 ]; do
+    attempt=$((attempt + 1))
+    rm -rf "$sess3"; : >"$out3"
+    DCC_SNAPSHOT=1 DCC_KEYS=l timeout 30 "$bin" --session "$sess3" --data "$data" \
+        </dev/null >"$out3" 2>&1 && rc3=0 || rc3=$?
+
+    snap1=$(grep '"cb":"__snapshot"' "$out3" | sed -n 1p)
+    snap2=$(grep '"cb":"__snapshot"' "$out3" | sed -n 2p)
+    x1=$(echo "$snap1" | grep -oE '"x":[0-9]+' | head -1 | cut -d: -f2)
+    y1=$(echo "$snap1" | grep -oE '"y":[0-9]+' | head -1 | cut -d: -f2)
+    hp1=$(echo "$snap1" | grep -oE '"hp":[0-9]+' | cut -d: -f2)
+    x2=$(echo "$snap2" | grep -oE '"x":[0-9]+' | head -1 | cut -d: -f2)
+    y2=$(echo "$snap2" | grep -oE '"y":[0-9]+' | head -1 | cut -d: -f2)
+    hp2=$(echo "$snap2" | grep -oE '"hp":[0-9]+' | cut -d: -f2)
+
+    echo "smoke(snapshot): attempt=$attempt exit=$rc3 before=(x=$x1,y=$y1,hp=$hp1) after=(x=$x2,y=$y2,hp=$hp2)"
+
+    if [ "$rc3" -eq 0 ] && [ -n "$x1" ] && [ -n "$x2" ] \
+        && [ "$x2" -eq $((x1 + 1)) ] && [ "$y2" -eq "$y1" ] && [ "$hp2" -eq "$hp1" ]; then
+        fail3=0
+    elif [ -n "$x1" ] && [ -n "$x2" ] && [ "$x2" -eq "$x1" ] && [ "$y2" -eq "$y1" ]; then
+        echo "smoke(snapshot): bumped a wall (room shape), retrying with a fresh roll"
+    else
+        break # a real failure (bad exit, missing snapshot, unexpected delta) -- don't retry
+    fi
+done
+
+if [ "$fail3" -eq 0 ]; then
+    echo "smoke(snapshot): PASS"
+else
+    echo "smoke(snapshot): FAIL (last 10 events)"; tail -10 "$out3"
+    exit 1
+fi

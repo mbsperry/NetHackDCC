@@ -1,11 +1,12 @@
 /* NetHackDCC engine driver -- glyph decoding (Phase 0, task 4)
  *
  * main.c stays header-free (see its own file comment); this translation
- * unit is the deliberate exception, because decoding a glyph_info into
- * {ch, color, monIdx} needs the engine's own glyph_info/glyph_map struct
- * layouts and the glyph-band macros in include/display.h -- both live
- * behind hack.h. It MUST be compiled with the same preprocessor defines
- * used to build libnh.a (see Makefile's GLYPHFLAGS), since some of those
+ * unit is a deliberate exception (see also snapshot.c), because decoding
+ * a glyph_info into {ch, color, monIdx} needs the engine's own
+ * glyph_info/glyph_map struct layouts and the glyph-band macros in
+ * include/display.h -- both live behind hack.h. It MUST be compiled with
+ * the same preprocessor defines
+ * used to build libnh.a (see Makefile's ENGINEFLAGS), since some of those
  * defines gate struct fields (e.g. ENHANCED_SYMBOLS on glyph_map) and a
  * mismatch would silently misalign the struct the engine actually wrote.
  *

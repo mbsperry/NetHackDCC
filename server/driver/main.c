@@ -46,13 +46,19 @@ void cmdq_add_ec(int q, int (*fn)(void));
 int ddoinv(void);
 #define CQ_CANNED 0
 
-/* Phase-0 task 4: glyph decoding. Implemented in glyphdecode.c (the one
- * translation unit in this driver that includes hack.h -- see its file
+/* Phase-0 task 4: glyph decoding. Implemented in glyphdecode.c (one of the
+ * translation units in this driver that includes hack.h -- see its file
  * comment) rather than here, so main.c can stay header-free while still
  * turning each print_glyph's opaque glyph_info* into {ch, color, monIdx}
  * via the engine's own glyph-band macros. */
 void dcc_decode_glyph(const void *glyphinfo_ptr, int *ch, int *color,
                       int *monIdx);
+
+/* Phase-0 final task: state snapshot. Implemented in snapshot.c (also
+ * includes hack.h); u and gi.invent are plain engine globals, so this is
+ * callable from inside any shim callback and always reflects current
+ * state. Writes its own NDJSON line straight to stdout. */
+void dcc_emit_snapshot(void);
 
 /* NetHack type facts we depend on (verified against include/global.h and
  * include/wintype.h at build commit):
@@ -149,6 +155,11 @@ winid_next(void)
 static int g_inject_inventory = 0;
 static int g_injected_inventory = 0;
 
+/* Phase-0 final task: when set, emit a state snapshot every time the engine
+ * is about to ask for a real keystroke -- i.e. once per completed turn,
+ * showing the result of whatever the previous key did. */
+static int g_snapshot = 0;
+
 /* Emit one NDJSON line for a decoded callback:
  *   {"cb":NAME,"fmt":FMT,"args":[...] [,"ret":N]} */
 static void
@@ -225,6 +236,8 @@ dcc_cb(const char *name, void *ret_ptr, const char *fmt, ...)
             g_injected_inventory = 1;
             emit_simple("__inject_inventory");
         }
+        if (g_snapshot)
+            dcc_emit_snapshot();
         emit_event(name, fmt, args, nargs, 0, 0);
         if (!strcmp(name, "shim_nh_poskey") && nargs >= 3) {
             /* x(p) y(p) mod(p) -- report a keystroke, no map click */
@@ -398,6 +411,7 @@ main(int argc, char *argv[])
     setvbuf(stdout, NULL, _IOLBF, 0);
     g_keys = getenv("DCC_KEYS");
     g_inject_inventory = getenv("DCC_INJECT_INVENTORY") != NULL;
+    g_snapshot = getenv("DCC_SNAPSHOT") != NULL;
 
     /* Build the per-session playground. */
     if (mkdir_p(session_dir) != 0) {
