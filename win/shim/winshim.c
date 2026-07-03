@@ -144,6 +144,10 @@ VDECLCB(shim_update_positionbar,(char *posbar), "vs", P2V posbar)
 VDECLCB(shim_print_glyph,(winid w, coordxy x, coordxy y, const glyph_info *glyphinfo, const glyph_info *bkglyphinfo), "vi11pp", A2P w, A2P x, A2P y, P2V glyphinfo, P2V bkglyphinfo)
 VDECLCB(shim_raw_print,(const char *str), "vs", P2V str)
 VDECLCB(shim_raw_print_bold,(const char *str), "vs", P2V str)
+/* DCC patch #4: not a window_procs member -- a standalone turn-boundary
+ * callout invoked from moveloop_core() so the driver can batch per-turn
+ * narration. Void, no args; fires once per game turn under SHIM_GRAPHICS. */
+VDECLCB(shim_turn_end,(void), "v")
 DECLCB(int, shim_nhgetch,(void), "i")
 DECLCB(int, shim_nh_poskey,(coordxy *x, coordxy *y, int *mod), "ippp", P2V x, P2V y, P2V mod)
 VDECLCB(shim_nhbell,(void), "v")

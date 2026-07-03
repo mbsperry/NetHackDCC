@@ -76,6 +76,42 @@ rm -f src/libnh.a && make GIT=1 WANT_LIBNH=1 all`) completes with exit 0;
 `ar t src/libnh.a` no longer lists `unixmain.o`, `getline.o`, `termcap.o`,
 `topl.o`, or `wintty.o`; `nm src/libnh.a | grep ' T main$'` returns nothing.
 
+## 4. `src/allmain.c` + `win/shim/winshim.c` — turn-boundary callout (`shim_turn_end`)
+
+**What**: a new standalone shim callback, `shim_turn_end()`, fired once per
+game turn from `moveloop_core()`. It is **not** a `window_procs` member — it's
+an out-of-band callout the shim graphics callback delivers like any other, so
+the host driver learns when a turn boundary passes (for batching per-turn
+narration in Vibe-crawler).
+
+**Why**: the driver needs a reliable turn signal. Without it, distinguishing
+"an injected command program finished and the engine wants the next command"
+from "the engine hit an unexpected sub-prompt mid-program" is guesswork; a
+turn marker makes program-completion detection exact, and it's the natural
+batching boundary for the narration pipeline.
+
+**Fix**: 
+- `win/shim/winshim.c`: `VDECLCB(shim_turn_end,(void), "v")` — one line, in
+  the existing `SHIM_GRAPHICS` block, next to the other callback definitions.
+  The `VDECLCB` macro forward-declares then defines it, so it fires the
+  registered `shim_graphics_callback` with name `"shim_turn_end"`, no args.
+- `src/allmain.c`: in the "once-per-turn things go here" section of
+  `moveloop_core()` (right after `l_nhcore_call(NHCORE_MOVELOOP_TURN)`), call
+  `shim_turn_end()` under `#ifdef SHIM_GRAPHICS`, with a guarded `extern`
+  prototype near the top of the file. Placed inside the same
+  `!monscanmove && u.umovement < NORMAL_SPEED` new-turn block that increments
+  `svm.moves`, so it fires exactly once per turn.
+
+Touches no saved struct and no `EDITLEVEL`; the callout is compiled out
+entirely in a normal (non-`SHIM_GRAPHICS`) build, so upstream/tty builds are
+byte-for-byte unaffected.
+
+**Verification**: `make GIT=1 WANT_LIBNH=1 all` completes exit 0; `nm
+src/libnh.a` shows `shim_turn_end` defined (`T`) in `winshim.o` and referenced
+(`U`) in `allmain.o`. Driving the driver over the protocol (`s`/search a few
+turns) emits exactly one `{"t":"turn","moves":N}` per turn with `N`
+incrementing 2, 3, 4, …; `engine/driver/smoke.sh` stays green.
+
 ## Build notes (not engine patches, but required and undocumented upstream)
 
 - **`submodules/lua` must be initialized** before building: `git submodule update --init submodules/lua`.

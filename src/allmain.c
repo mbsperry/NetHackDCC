@@ -11,6 +11,11 @@
 #include <signal.h>
 #endif
 
+#ifdef SHIM_GRAPHICS
+/* DCC patch #4: turn-boundary callout, defined in win/shim/winshim.c. */
+extern void shim_turn_end(void);
+#endif
+
 staticfn void moveloop_preamble(boolean);
 staticfn void u_calc_moveamt(int);
 staticfn void maybe_generate_rnd_mon(void);
@@ -263,6 +268,13 @@ moveloop_core(void)
                 /********************************/
 
                 l_nhcore_call(NHCORE_MOVELOOP_TURN);
+
+#ifdef SHIM_GRAPHICS
+                /* DCC patch #4: turn-boundary callout for narration batching.
+                   Standalone shim callback (not a window_procs member),
+                   defined in win/shim/winshim.c. */
+                shim_turn_end();
+#endif
 
                 if (Glib)
                     glibr();
