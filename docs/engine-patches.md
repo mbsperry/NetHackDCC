@@ -10,7 +10,7 @@ Every change to upstream code is logged here, in commit order.
 compatible with upstream. `NetHack-5.0` mirrors upstream; sync = merge it into
 `dcc-engine`, rebuild, run Vibe-crawler's driver smoke test, bump the pin.
 
-Both current patches are generic Linux build fixes — candidates for an
+All three current patches are generic Linux build fixes — candidates for an
 upstream PR to NetHack/NetHack.
 
 ## 1. `sys/unix/hints/linux.500` — fix `recover` target missing `lua_support` dependency under `WANT_LIBNH`
@@ -45,10 +45,42 @@ why liblua is still linked separately by consumers rather than relied on inside
 symbols, and Vibe-crawler's `engine/driver/nhdcc-driver` links and boots the
 engine.
 
+## 3. `sys/unix/hints/linux.500` — drop `unixmain.o`/tty-windowport objects from `libnh.a`
+
+**Problem**: a driver that links only `nhmain()`/`shim_graphics_set_callback()`
+against `libnh.a` builds fine, but linking anything more (e.g. `cmdq_add_ec()`
+and an extended-command function) fails with `ld` reporting "multiple
+definition of `main`" (the driver's own `main()` vs. `unixmain.o`'s),
+duplicate definitions of `whoami`/`sethanguphandler`/`authorize_wizard_mode`/
+etc. (defined in both `unixmain.o` and `libnhmain.o`), and an unresolved
+`uuid_generate_random`/`uuid_unparse` (only `unixmain.o`'s `get_nhuuid()`
+needs libuuid; `libnhmain.o`'s doesn't).
+
+**Cause**: the Linux `WANT_LIBNH` archive rule built `libnh.a` from the full
+`$(HOBJ)` (which includes `$(SYSOBJ)`, carrying `unixmain.o` -- the normal
+Unix `main()` and its support functions -- and `$(WINOBJ)`, the tty
+windowport) plus `$(LIBNHSYSOBJ)` (which supplies `libnhmain.o`/`winshim.o`
+as the library-mode replacements). Both copies ended up archived together;
+harmless until a consumer's link needed enough of the archive to pull in
+`unixmain.o`'s member, at which point its duplicate symbols (and its own
+`main`) collided with the consuming binary.
+
+**Fix**: `sys/unix/hints/macOS.500` already carries the fix (same pattern as
+patches #1 and #2 above) -- its `libnh.a` rule filters `$(SYSOBJ)` and
+`$(WINOBJ)` out of `$(HOBJ)` before archiving, since `$(LIBNHSYSOBJ)` already
+supplies their library-mode equivalents. `linux.500` was missing the same
+`filter-out`; ported it verbatim.
+
+**Verification**: clean rebuild (`sh sys/unix/setup.sh hints/linux.500 &&
+rm -f src/libnh.a && make GIT=1 WANT_LIBNH=1 all`) completes with exit 0;
+`ar t src/libnh.a` no longer lists `unixmain.o`, `getline.o`, `termcap.o`,
+`topl.o`, or `wintty.o`; `nm src/libnh.a | grep ' T main$'` returns nothing.
+
 ## Build notes (not engine patches, but required and undocumented upstream)
 
 - **`submodules/lua` must be initialized** before building: `git submodule update --init submodules/lua`.
 - **`GIT=1` must be passed on the `make` command line** (in addition to `WANT_LIBNH=1`) to opt into the submodule-based Lua build. Without it, `GITSUBMODULES` is never set (it's gated on `ifeq "$(GIT)" "1"` / `ifeq "$(git)" "1"` in the generated Makefile, not on submodule presence), and the build falls back to the tarball-fetch Lua path (`lib/lua-5.4.8/...`), which fails with "Please do 'make fetch-lua'" since no tarball was fetched. `sys/libnh/README.md`'s quick-start doesn't mention this flag — worth a doc fix upstream.
+- **`sh sys/unix/setup.sh hints/linux.500` must be re-run after editing any `sys/unix/hints/linux.500` rule.** The top-level `Makefile` is a generated artifact copied in by `setup.sh`; editing the hint file alone has no effect on an already-generated `Makefile`.
 - Full working build sequence on Linux:
   ```
   git submodule update --init submodules/lua
