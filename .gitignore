@@ -102,3 +102,5 @@ sys/amiga/regex/
 #NetHackDCC engine driver hosts (see mbsperry/Vibe-crawler) create the
 #runtime playground at the compiled-in HACKDIR inside this checkout
 playground/
+#and capture this checkout's own CFLAGS for ABI-matched driver builds
+.dcc-engine-cflags
