@@ -90,6 +90,11 @@ win/share/oththin.txt
 #libnethack
 targets/*
 bundle/*
+
+#NetHackDCC engine driver: build-path playground (holds the sysconf the engine
+# reads from its compiled HACKDIR) and per-session runtime dirs
+playground/
+server/driver/nhdcc-driver
 #test.js
 #sys/lib/npm-package/build/nethack.js
 #sys/lib/npm-package/build/nethack.wasm

@@ -12,6 +12,27 @@ Every change to the upstream engine (`src/`, `include/`, `win/`, `sys/`, `dat/`)
 
 **Verification**: clean rebuild (`rm -f src/libnh.a src/*.o include/nhlua.h && make GIT=1 WANT_LIBNH=1 all`) completes with exit 0, no errors, and `nm src/libnh.a` shows `nhmain`, `shim_graphics_set_callback`, and all four `cmdq_add_*` symbols exported.
 
+## 2. `sys/unix/hints/linux.500` — include `hacklib.o` in `libnh.a`
+
+**Problem**: linking anything against `src/libnh.a` failed with undefined
+references to core utility functions — `dist2`, `distmin`, `eos`, `sgn`,
+`strncmpi`, `nh_snprintf`, `upstart`, and others.
+
+**Cause**: these live in `src/hacklib.o`, which the normal game/recover builds
+pull in via `$(TARGET_HACKLIB)`. The Linux `WANT_LIBNH` archive rule assembled
+`libnh.a` from `$(HOBJ) $(LIBNHSYSOBJ)` and the Lua archive only — omitting
+hacklib entirely. (`macOS.500` merges it via `$(TARGET_HACKLIB)` in its
+`libtool` invocation; `linux.500` had no equivalent.)
+
+**Fix**: add `$(TARGETPFX)hacklib.o` to both the prerequisites and the `ar`
+command of the `libnh.a` rule. The plain object merges cleanly with `ar`
+(unlike a nested `.a`, whose members a linker won't dereference — which is also
+why liblua is still linked separately by consumers rather than relied on inside
+`libnh.a`).
+
+**Verification**: `nm src/libnh.a` now lists `dist2`/`eos`/`sgn` as defined
+(`T`) symbols, and `server/driver/nhdcc-driver` links and boots the engine.
+
 ## Build notes (not engine patches, but required and undocumented)
 
 - **`submodules/lua` must be initialized** before building: `git submodule update --init submodules/lua`.
@@ -23,3 +44,26 @@ Every change to the upstream engine (`src/`, `include/`, `win/`, `sys/`, `dat/`)
   make GIT=1 WANT_LIBNH=1 all
   ```
   Output: `src/libnh.a`.
+
+## Runtime notes (behaviour a host must accommodate; no engine change)
+
+- **`CHDIR` is not defined in this `libnh` build.** Consequences the driver
+  handles: the `-d <playground>` command-line option is inert (its value also
+  breaks the `-u`/option scan if passed), and `nhmain` never `chdir()`s to the
+  playground itself. The host must `chdir()` into the per-session dir before
+  calling `nhmain` so relative paths (`nhdat`, `symbols`, `perm`, `record`,
+  `save/`) resolve there. Setting `$NETHACKDIR` is kept as belt-and-suspenders
+  for a future `CHDIR` build.
+- **`SYSCF_FILE` is a compiled absolute path** (`HACKDIR/sysconf`,
+  i.e. `<repo>/playground/sysconf`), read regardless of the working dir. The
+  host must ensure that file exists; `MAXPLAYERS` there is capped at 25.
+- **Runtime files the engine expects to pre-exist** in the playground:
+  empty `perm`, `record`, `logfile`, and a `save/` directory (a normal
+  `make install` creates these). Data files `nhdat`, `symbols`, `license` are
+  symlinked in from `dat/`.
+- **Player selection**: with the shim's no-op `player_selection`, `newgame()`
+  → `role_init()` fills any unspecified role/race/gender/alignment with random
+  valid values, so a bare `-u<name>` boots to a complete, randomly-rolled hero.
+- **`select_menu` must return `-1` (cancelled), not `0`,** to decline yes/no
+  menus such as the new-game tutorial offer; `0` ("0 items selected") makes
+  such prompts re-ask, which loops forever.
