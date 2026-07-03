@@ -5,7 +5,7 @@
 A web-based narrative dungeon crawler built on the NetHack engine (this fork, dev branch v5.0). NetHack supplies the hard parts — ~396 monsters, ~450+ objects, ~40 artifacts, combat, inventory, leveling, dungeon generation, decades of business logic. We add:
 
 - A web frontend with a traditional **map view** and an **AI narrative view** — side-by-side on desktop, tabs on mobile.
-- GenAI narration in a sarcastic, unstable dungeon-AI announcer voice (Dungeon Crawler Carl-inspired *tone*, **original IP** — our own persona, names, and catchphrases; sarcastic achievements).
+- GenAI narration with **two distinct voices**, mirroring the Dungeon Crawler Carl books' structure (tone only — **original IP**, our own persona/names/catchphrases): a relatively **neutral narrator voice** for the flow of general narration (what's happening, scene-setting, combat, exploration), and a separate **unhinged dungeon-AI voice** reserved for descriptions, achievements, and announcements — the moments the "system" is talking directly at the player.
 - **Free-text action input** translated by AI into game commands; standard NetHack keyboard commands always work too, including map navigation.
 - Narration toggleable off; narration must **never block gameplay**.
 - AI-enhanced item/creature descriptions grounded in the game's encyclopedia; inventory/stats/message displays.
@@ -90,7 +90,7 @@ Vite + React + TypeScript; zustand store fed by a WS reducer mirroring session s
 - **MessageLog**: scrollback (no tty `--More--`; the shim delivers messages individually).
 - **InventoryPanel**: perm_invent (enabled via `set_option`), grouped by object class.
 - **MenuOverlay / PromptBar**: the pending ask drives one input-mode state machine — PICK_NONE = dismissable overlay, PICK_ONE = click list, PICK_ANY = checkboxes + confirm, yn = inline bar with buttons *and* raw key, poskey = map target mode. Raw keys always answer the open ask (tty-equivalent behavior).
-- **NarrativePane**: streaming text, turn anchors, achievement toasts; unmounts entirely when narration is off.
+- **NarrativePane**: streaming narrator prose with turn anchors, interleaved with visually distinct announcer-voice callouts (achievement toasts, descriptions, announcements) so the two voices are legible as two different speakers; unmounts entirely when narration is off.
 - **FreeTextInput**: under the narrative pane; progress chips from `action_status`; keyboard passthrough disabled while focused.
 - **Layout**: desktop CSS grid (map+status | narrative, toggleable); mobile tabs [Map | Story | Inventory | Log] + on-screen direction pad; settings sheet (density, persona, ascii/tiles).
 - Full NetHack keymap passthrough including Ctrl combos and count prefixes.
@@ -100,11 +100,22 @@ Vite + React + TypeScript; zustand store fed by a WS reducer mirroring session s
 ## Part 3 — AI integration plan (`server/node/src/ai/`)
 
 - **Provider layer**: `LLM` interface (stream/complete) with Anthropic / OpenAI / OpenRouter / Gemini adapters; `fast`/`strong` tier map per task type; retries, timeouts, circuit breaker; token/$/latency metrics from day one.
-- **Narration pipeline**: per-session EventBuffer accumulates between `turn` markers (messages, status deltas, livelog) → rule-based significance filter (combat, first sighting of a species, level entry, HP < 30%, death = max; movement spam = 0) → density thresholds (`off|low|med|high`; off short-circuits all LLM calls) → async narration worker (1 in-flight + 1 pending; newer batches coalesce so the story summarizes rather than backlogs; the gameplay input path never touches this code) → streamed to the NarrativePane.
-- **Persona system**: `content/personas/<id>/persona.yaml` — system prompt (voice, running gags), style constraints, achievement templates, set-piece triggers routed to the strong tier. Ship one original persona (working concept: a malfunctioning dungeon-management AI). Memory = rolling run summary (fast model, every ~50 turns) + recent narrations.
-- **Descriptions**: parse `dat/data.base` at startup (same format `checkfile()` reads) + hard stats from a build-time `monsters.json`/`objects.json` dump tool (links `libnethack.a`) → fast model in persona voice → SQLite cache keyed `(entity, persona, promptVersion)` — near-100% hit rate after warmup; pre-generate the common ~200 entries.
-- **Achievements**: triggered only off real engine signals (livelog/xlogfile records + rules on real events); titles generated once per (trigger, persona) and cached; toasts + panel; end-of-game recap from dumplog + xlogfile via the strong tier.
-- **Cost controls**: per-session token meter; soft budget → auto-drop density (in-voice "budget cuts"); hard budget → narration off, gameplay unaffected; `$ / session` cap in config.
+
+### Two voice channels
+
+Mirrors the structural split in the Dungeon Crawler Carl books (tone only — **original IP**, our own persona/names/catchphrases, no character names from that or any other copyrighted work): a grounded narrator carries the story, and a separate unhinged system-AI voice breaks in for specific, bounded moments. Keeping them as two distinct model-call types (not two moods of one prompt) makes routing, caching, cost control, and UI treatment all simpler.
+
+- **Narrator voice** (relatively neutral, literary/grounded): handles the flowing narration stream — scene-setting, combat, exploration, consequence. Reads like a competent DM, not a hype machine. This is the *only* voice driven by the turn-by-turn event pipeline.
+- **Announcer voice** (unhinged, sarcastic, "the dungeon's AI talking directly to you"): reserved for item/creature **descriptions**, **achievements**, and **announcements** (level entry fanfare, death/game-over, budget-cut notices, clarification questions, "cannot parse that" errors). Bounded, interjection-style outputs — short, punchy, never carries the continuous story thread.
+
+`content/personas/<id>/persona.yaml` holds **both** voice profiles under one pack so they share lore/world-building but have independent system prompts and style constraints: `narrator: {system_prompt, style_constraints}` and `announcer: {system_prompt, style_constraints, catchphrases, achievement_templates}`. Ship one original persona pack v1 (working concept: a dungeon-management system past its warranty). Set-piece narrator moments (boss fights, deaths) may route to the strong tier; announcer calls are short enough to usually stay on the fast tier even at "strong" quality bars.
+
+- **Narration pipeline** (narrator voice only): per-session EventBuffer accumulates between `turn` markers (messages, status deltas, livelog) → rule-based significance filter (combat, first sighting of a species, level entry, HP < 30%, death = max; movement spam = 0) → density thresholds (`off|low|med|high`; off short-circuits all LLM calls) → async narration worker (1 in-flight + 1 pending; newer batches coalesce so the story summarizes rather than backlogs; the gameplay input path never touches this code) → streamed into the NarrativePane as flowing prose.
+- **Announcer triggers** (announcer voice only): fire on discrete events, not the turn stream — a `describe` request, an achievement unlock, a level-change/death/game-over, a free-text `clarify`/`cannot` response, a budget auto-degrade. Rendered in the NarrativePane as visually distinct interjections (bordered "system" callouts, not blended into the narrator's paragraphs) so the two voices read as two different speakers, the way the book alternates prose chapters with system-screen inserts.
+- Memory: narrator voice keeps a rolling run summary (fast model, every ~50 turns) + recent narration for continuity; announcer voice is mostly stateless per call (each description/achievement is self-contained) aside from the shared persona lore.
+- **Descriptions** (announcer voice): parse `dat/data.base` at startup (same format `checkfile()` reads) + hard stats from a build-time `monsters.json`/`objects.json` dump tool (links `libnethack.a`) → fast model in announcer voice → SQLite cache keyed `(entity, persona, promptVersion)` — near-100% hit rate after warmup; pre-generate the common ~200 entries.
+- **Achievements** (announcer voice): triggered only off real engine signals (livelog/xlogfile records + rules on real events); titles generated once per (trigger, persona) and cached; toasts + panel; end-of-game recap from dumplog + xlogfile — narrator voice for the retrospective prose, announcer voice for the final scored/achievement rundown.
+- **Cost controls**: per-session token meter; soft budget → auto-drop narrator density first, announcer interjections survive longer since they're cheap and infrequent (in-voice "budget cuts" announcement); hard budget → narration off, gameplay unaffected; `$ / session` cap in config.
 
 ## Part 4 — Free-text action translation
 
@@ -115,7 +126,7 @@ Pipeline: `freetext` → context assembly → LLM intent parse → plan validati
 - **Compile**: the model emits a JSON plan → each step compiles to `inject` steps with pre-staged answers **only from an allowlist** (item letters, directions, benign yn); every step gets an `expect` guard.
 - **Dangerous prompts are never auto-answered**: danger-by-default classifier ("Really attack", "peaceful", "shopkeeper", "pray", save/quit, cursed confirmations…); a dangerous or unexpected ask aborts the program and surfaces the real prompt to the human in both views.
 - **Interruption** (the "walk down the hall" problem): the engine already stops travel/occupations on `monster_nearby()` and similar; the driver reports `program aborted {reason:"interrupted"}` with the triggering messages. v1 policy = report and hand control back (no auto-replan; replan-once later behind a setting).
-- **Ambiguity**: `clarify` → quick-reply prompt; when confidence is high, act and say what was chosen. **Parse failure**: `cannot` → in-voice error + phrasing hint; raw input is never guessed into a command.
+- **Ambiguity**: `clarify` → quick-reply prompt; when confidence is high, act and say what was chosen. **Parse failure**: `cannot` → announcer-voice error + phrasing hint; raw input is never guessed into a command.
 - **Failure modes covered**: hallucinated inventory letters (pre-flight validation + expect abort), stale state (guard abort), unpredicted menus (surface to player), blocked travel (engine stops, reported), prompt injection via user text *or in-game text* — engravings can literally say "ignore previous instructions" (mitigations: schema-constrained output, allowlist-only auto-answers, server-side classifier), LLM outage (free-text disabled, keys always work), count runaway ("search 999 times" → cap injected counts).
 
 ## Part 5 — Risks & open issues
@@ -173,11 +184,11 @@ Each task is tagged with the development model it needs: **[Sonnet]** = default 
 ### Phase 3 — AI foundation + narration
 - [ ] **[Sonnet]** Provider abstraction + 4 adapters, tier config, metrics — standard adapter pattern
 - [ ] **[Sonnet]** EventBuffer + significance rules + density settings (unit-tested on recorded Phase-2 event streams)
-- [ ] **[Sonnet]** Narration worker (coalescing, streaming) + NarrativePane + toggle (off = zero LLM calls)
-- [ ] **[Opus]** Persona pack v1 (original snarky dungeon-AI) + picker; run-summary memory — the voice is the product; needs strong creative writing plus original-IP discipline
+- [ ] **[Sonnet]** Narration worker (coalescing, streaming) + NarrativePane rendering both voice types distinctly + toggle (off = zero LLM calls)
+- [ ] **[Opus]** Persona pack v1 — both voice profiles (neutral narrator + unhinged announcer) + picker; run-summary memory — the voices are the product; needs strong creative writing plus original-IP discipline
 - [ ] **[Sonnet]** Final desktop side-by-side + mobile Story tab
 
-**Definition of done**: a 30-minute session narrated in-voice; narration never delays a keypress (measured); cost logged per session.
+**Definition of done**: a 30-minute session narrated with both voices distinguishable in the UI; narration never delays a keypress (measured); cost logged per session.
 
 ### Phase 4 — Descriptions + achievements
 - [ ] **[Sonnet]** `data.base` parser/index + build-time stats dump (`monsters.json`/`objects.json`)
@@ -185,7 +196,7 @@ Each task is tagged with the development model it needs: **[Sonnet]** = default 
 - [ ] **[Sonnet]** Achievement engine (livelog/xlogfile + rule triggers), cached titles, toasts + panel
 - [ ] **[Sonnet]** End-of-game recap (dumplog + xlogfile, strong tier) — prompt drafting can borrow the Opus-written persona pack
 
-**Definition of done**: describing a kitten twice hits cache; dying yields an in-voice obituary + at least one earned mock-achievement.
+**Definition of done**: describing a kitten twice hits cache; dying yields an announcer-voice obituary + at least one earned mock-achievement.
 
 ### Phase 5 — Free-text actions
 - [ ] **[Sonnet]** Tool schema generator + context assembler
