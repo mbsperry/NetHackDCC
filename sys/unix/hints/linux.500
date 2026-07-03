@@ -630,8 +630,16 @@ ifdef WANT_LIBNH
 # hacklib.o holds core utility fns (dist2, eos, sgn, strncmpi, ...) that are
 # not part of $(HOBJ); macOS.500 merges it via $(TARGET_HACKLIB), so include
 # it here too or the archive is missing those symbols.
+# filter-out drops $(SYSOBJ) (which carries unixmain.o -- its own main() plus
+# whoami/sethanguphandler/etc. duplicated by libnhmain.o) and $(WINOBJ) (the
+# tty windowport) from $(HOBJ), matching macOS.500; $(LIBNHSYSOBJ) supplies
+# libnhmain.o and winshim.o in their place. Without this, any consumer link
+# that pulls in enough of the archive to need unixmain.o hits "multiple
+# definition of main" against its own main() (and an unresolved
+# uuid_generate_random/uuid_unparse, since unixmain.o's get_nhuuid() needs
+# libuuid, which libnh.a consumers don't link).
 $(TARGETPFX)libnh.a: $(HOBJ) $(LIBNHSYSOBJ) $(TARGETPFX)hacklib.o ../lib/lua/liblua-$(LUA_VERSION).a
-	$(AR) rcs $@ $(HOBJ) $(LIBNHSYSOBJ) $(TARGETPFX)hacklib.o ../lib/lua/liblua-$(LUA_VERSION).a
+	$(AR) rcs $@ $(filter-out $(SYSOBJ) $(WINOBJ),$(HOBJ)) $(LIBNHSYSOBJ) $(TARGETPFX)hacklib.o ../lib/lua/liblua-$(LUA_VERSION).a
 	@echo "$@ built."
 $(TARGETPFX)libnhmain.o : ../sys/libnh/libnhmain.c $(HACK_H)
 	$(CC) $(CFLAGS) -c -o$@ $<

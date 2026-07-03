@@ -33,10 +33,44 @@ why liblua is still linked separately by consumers rather than relied on inside
 **Verification**: `nm src/libnh.a` now lists `dist2`/`eos`/`sgn` as defined
 (`T`) symbols, and `server/driver/nhdcc-driver` links and boots the engine.
 
+## 3. `sys/unix/hints/linux.500` — drop `unixmain.o`/tty-windowport objects from `libnh.a`
+
+**Problem**: `server/driver` linked fine while only calling `nhmain()` /
+`shim_graphics_set_callback()`, but broke as soon as it also referenced
+`cmdq_add_ec()` and `ddoinv()` (Phase-0 task 5): `ld` reported "multiple
+definition of `main`" (driver's `main()` vs. `unixmain.o`'s), duplicate
+definitions of `whoami`/`sethanguphandler`/`authorize_wizard_mode`/etc.
+(defined in both `unixmain.o` and `libnhmain.o`), and an unresolved
+`uuid_generate_random`/`uuid_unparse` (only `unixmain.o`'s `get_nhuuid()`
+needs libuuid; `libnhmain.o`'s doesn't).
+
+**Cause**: the Linux `WANT_LIBNH` archive rule built `libnh.a` from the full
+`$(HOBJ)` (which includes `$(SYSOBJ)`, carrying `unixmain.o` -- the normal
+Unix `main()` and its support functions -- and `$(WINOBJ)`, the tty
+windowport) plus `$(LIBNHSYSOBJ)` (which supplies `libnhmain.o`/`winshim.o`
+as the library-mode replacements). Both copies ended up archived together;
+harmless until a consumer's link needed enough of the archive to pull in
+`unixmain.o`'s member, at which point its duplicate symbols (and its own
+`main`) collided with the consuming binary.
+
+**Fix**: `sys/unix/hints/macOS.500` already carries the fix (same pattern as
+patches #1 and #2 above) -- its `libnh.a` rule filters `$(SYSOBJ)` and
+`$(WINOBJ)` out of `$(HOBJ)` before archiving, since `$(LIBNHSYSOBJ)` already
+supplies their library-mode equivalents. `linux.500` was missing the same
+`filter-out`; ported it verbatim.
+
+**Verification**: clean rebuild (`sh sys/unix/setup.sh hints/linux.500 &&
+rm -f src/libnh.a && make GIT=1 WANT_LIBNH=1 all`) completes with exit 0;
+`ar t src/libnh.a` no longer lists `unixmain.o`, `getline.o`, `termcap.o`,
+`topl.o`, or `wintty.o`; `nm src/libnh.a | grep ' T main$'` returns nothing;
+`server/driver` links and `sh server/driver/smoke.sh` passes, including the
+task-5 injection check.
+
 ## Build notes (not engine patches, but required and undocumented)
 
 - **`submodules/lua` must be initialized** before building: `git submodule update --init submodules/lua`.
 - **`GIT=1` must be passed on the `make` command line** (in addition to `WANT_LIBNH=1`) to opt into the submodule-based Lua build. Without it, `GITSUBMODULES` is never set (it's gated on `ifeq "$(GIT)" "1"` / `ifeq "$(git)" "1"` in the generated Makefile, not on submodule presence), and the build falls back to the tarball-fetch Lua path (`lib/lua-5.4.8/...`), which fails with "Please do 'make fetch-lua'" since no tarball was fetched. `sys/libnh/README.md`'s quick-start doesn't mention this flag — worth a doc fix upstream.
+- **`sh sys/unix/setup.sh hints/linux.500` must be re-run after editing any `sys/unix/hints/linux.500` rule.** The top-level `Makefile` is a generated artifact copied in by `setup.sh`; editing the hint file alone has no effect on an already-generated `Makefile` (bit us while landing patch #3 above -- the fix silently didn't apply until `setup.sh` was re-run).
 - Full working build sequence on Linux:
   ```
   git submodule update --init submodules/lua
