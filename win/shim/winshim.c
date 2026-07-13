@@ -199,7 +199,17 @@ shim_ctrl_nhwindow(
     return (win_request_info *) 0;
 }
 #else /* !__EMSCRIPTEN__ */
-VDECLCB(shim_player_selection, (void), "v")
+/* dcc patch #5: run the interactive role/race/gender/alignment selection
+   through the generic selection dialog (genl_player_setup), like the
+   emscripten build above, instead of a no-op thunk that left role_init()
+   to random-roll everything silently. The dialog's prompts surface as
+   ordinary yn_function/select_menu callbacks, so a driver sees them as
+   regular asks. Cancelling ('q'/ESC) quits, matching every other port
+   (same handling as genl_player_selection()). */
+void shim_player_selection(void) {
+    if (!genl_player_setup(80))
+        nh_terminate(EXIT_SUCCESS);
+}
 VDECLCB(shim_update_inventory,(int a1 UNUSED), "vi", A2P a1)
 DECLCB(win_request_info *, shim_ctrl_nhwindow,
     (winid window, int request, win_request_info *wri),

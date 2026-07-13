@@ -10,8 +10,9 @@ Every change to upstream code is logged here, in commit order.
 compatible with upstream. `NetHack-5.0` mirrors upstream; sync = merge it into
 `dcc-engine`, rebuild, run Vibe-crawler's driver smoke test, bump the pin.
 
-All three current patches are generic Linux build fixes — candidates for an
-upstream PR to NetHack/NetHack.
+Patches #1–#3 are generic Linux build fixes — candidates for an upstream PR
+to NetHack/NetHack. Patches #4–#5 are shim-windowport integration changes
+(compiled out of / inert in normal builds).
 
 ## 1. `sys/unix/hints/linux.500` — fix `recover` target missing `lua_support` dependency under `WANT_LIBNH`
 
@@ -111,6 +112,40 @@ src/libnh.a` shows `shim_turn_end` defined (`T`) in `winshim.o` and referenced
 (`U`) in `allmain.o`. Driving the driver over the protocol (`s`/search a few
 turns) emits exactly one `{"t":"turn","moves":N}` per turn with `N`
 incrementing 2, 3, 4, …; `engine/driver/smoke.sh` stays green.
+
+## 5. `win/shim/winshim.c` — real `shim_player_selection` (interactive character creation)
+
+**Problem**: a game booted through the shim windowport never asks NetHack's
+"Shall I pick a character's race, role, gender and alignment for you?
+[ynaq]" question, or any of the role/race/gender/alignment pick menus — the
+hero is silently random-rolled.
+
+**Cause**: the non-emscripten `shim_player_selection` was a `VDECLCB` no-op
+thunk: it fired the graphics callback (a fire-and-forget event) and returned
+without running any selection dialog. The engine's selection dialog lives in
+`genl_player_setup()` (`src/role.c`), which only runs if the windowport's
+`player_selection` proc calls it — the emscripten branch of the shim does,
+the libnh branch didn't. With no facets set (the driver passes only
+`-u<name>`), `role_init()` then filled every facet with random values,
+asking nothing.
+
+**Fix**: define `shim_player_selection()` in the `!__EMSCRIPTEN__` branch as
+a real function that calls `genl_player_setup(80)` — same as the emscripten
+branch (80 = nominal screen height; avoids the `screenheight=0`
+separator-skipping edge in `maybe_skip_seps`) — and `nh_terminate(EXIT_SUCCESS)`
+when the player cancels, mirroring `genl_player_selection()`'s cancel
+handling. `genl_player_setup` is already compiled in for `SHIM_GRAPHICS`
+builds and drives the whole dialog through ordinary `yn_function` /
+`select_menu` windowport calls, so a shim host sees it as regular asks with
+no new protocol. Additive; touches no saved struct and no `EDITLEVEL`;
+emscripten branch unchanged.
+
+**Verification**: `make GIT=1 WANT_LIBNH=1 all` exit 0. Booting
+Vibe-crawler's driver on a fresh session emits
+`{"t":"ask","kind":"yn","query":"Shall I pick a character's race, role, gender and alignment for you? [ynaq]",...}`
+as the first ask; answering `n` streams the role PICK_ONE menu; answering
+`a` boots straight to a random hero (previous behavior, now opt-in);
+`engine/driver/smoke.sh` green with the added `a` in `DCC_KEYS`.
 
 ## Build notes (not engine patches, but required and undocumented upstream)
 
